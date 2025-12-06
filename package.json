@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@google/genai": "latest",
-    "lucide-react": "0.344.0",
+    "lucide-react": "^0.468.0",
     "pdfjs-dist": "3.11.174",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
