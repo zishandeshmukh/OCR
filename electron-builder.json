@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.voteralign.pro",
+  "productName": "VoterAlign Pro",
+  "copyright": "Copyright © 2025 Election Data Systems",
+  "directories": {
+    "output": "release",
+    "buildResources": "electron/assets"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "!**/*.map"
+  ],
+  "extraResources": [
+    {
+      "from": "electron/assets",
+      "to": "assets",
+      "filter": ["**/*"]
+    }
+  ],
+  "asar": true,
+  "asarUnpack": [
+    "**/*.node",
+    "**/node_modules/sharp/**/*",
+    "**/node_modules/pdfjs-dist/**/*"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "electron/assets/icon.png",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "VoterAlign Pro",
+    "include": "electron/installer.nsh"
+  },
+  "portable": {
+    "artifactName": "${productName}-Portable-${version}.${ext}",
+    "requestExecutionLevel": "user"
+  },
+  "mac": {
+    "target": ["dmg", "zip"],
+    "icon": "electron/assets/icon.png",
+    "category": "public.app-category.productivity"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "electron/assets/icon.png",
+    "category": "Office"
+  }
+}

@@ -1,0 +1,64 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
+
+# VoterAlign Pro (Electron + React)
+
+Offline-capable Election Data Management desktop app with admin/employee roles, AI OCR (Gemini + Tesseract), and local IndexedDB storage.
+
+## Prerequisites
+
+- Node.js 18+
+- Windows for Electron build (current target)
+- Optional: `GEMINI_API_KEY` in `.env.local` (fallback to embedded key if provided in config)
+
+## Install
+
+```bash
+npm install
+```
+
+## Local Web Dev (for UI tweaks)
+
+```bash
+npm run dev
+# open http://localhost:3000
+```
+
+## Electron Desktop (Windows)
+
+```bash
+npm run electron:build:win
+# outputs installer + portable + unpacked under release/
+
+# create distributable ZIP for employees (after build)
+cd release
+powershell -Command "Compress-Archive -Path 'win-unpacked/*' -DestinationPath 'VoterAlign-Pro-Full.zip' -Force"
+```
+
+Distribute `VoterAlign-Pro-Full.zip` (fully offline — CSS bundled, no CDN).
+
+## Login & Roles
+
+- Default admin: `admin / admin` (auto-created if missing)
+- Admin can manage users, API key, and clear all data
+- Employees must use admin-created credentials; can only edit/delete their own extracted records; cannot manage users/API key
+- “Reset Admin Account” button on the admin login screen recreates the default admin without deleting employees
+
+## Data & Storage
+
+- User accounts + sessions: `localStorage` (`VOTER_APP_USERS`, `VOTER_APP_SESSION`)
+- Voter data: IndexedDB (auto-restore on launch)
+- Live Save (optional): saves to disk when enabled
+
+## Useful Scripts
+
+- `npm run dev` — Vite dev server
+- `npm run build` — production web build
+- `npm run electron:start` — run Electron with local files
+- `npm run electron:build:win` — build Windows installer/portable
+
+## Notes
+
+- All styles are bundled (Tailwind v3) — works offline.
+- Keep `.env.local` out of git (already in `.gitignore`).
