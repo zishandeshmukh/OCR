@@ -496,7 +496,7 @@ const getUsers = (): UserAccount[] => {
         console.error('Error parsing users from localStorage:', e);
     }
     // Default Admin if no valid users exist or parsing failed
-    const defaultAdmin: UserAccount = { username: 'admin', password: 'admin', role: 'admin' };
+    const defaultAdmin: UserAccount = { username: 'khadilkar', password: 'Pass@1234', role: 'admin' };
     localStorage.setItem('VOTER_APP_USERS', JSON.stringify([defaultAdmin]));
     return [defaultAdmin];
 };
@@ -698,24 +698,6 @@ const LoginScreen = ({ onLogin }: { onLogin: (user: UserAccount) => void }) => {
                     <button type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all">
                         🔐 Admin Sign In
                     </button>
-                    
-                    <button 
-                        type="button"
-                        onClick={() => {
-                            if (confirm('⚠️ Reset admin account to default?\n\nThis will create a fresh admin account:\nUsername: admin\nPassword: admin\n\nAll other user accounts will be preserved.')) {
-                                const users = getUsers().filter(u => u.role !== 'admin');
-                                const defaultAdmin: UserAccount = { username: 'admin', password: 'admin', role: 'admin' };
-                                saveUsers([defaultAdmin, ...users]);
-                                setUsername('admin');
-                                setPassword('admin');
-                                setError('');
-                                alert('✅ Admin reset! Use:\nUsername: admin\nPassword: admin');
-                            }
-                        }}
-                        className="w-full py-2 text-xs text-rose-500 hover:text-rose-600 transition-all"
-                    >
-                        🔄 Reset Admin Account
-                    </button>
                 </form>
                 
                 <button 
@@ -727,7 +709,7 @@ const LoginScreen = ({ onLogin }: { onLogin: (user: UserAccount) => void }) => {
             </div>
             
             <p className="mt-8 text-xs text-slate-400">
-                Default: admin / admin
+                Contact admin for credentials
             </p>
         </div>
     );

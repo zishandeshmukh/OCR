@@ -38,10 +38,9 @@ Distribute `VoterAlign-Pro-Full.zip` (fully offline — CSS bundled, no CDN).
 
 ## Login & Roles
 
-- Default admin: `admin / admin` (auto-created if missing)
+- Default admin: `khadilkar / Pass@1234` (auto-created if missing)
 - Admin can manage users, API key, and clear all data
 - Employees must use admin-created credentials; can only edit/delete their own extracted records; cannot manage users/API key
-- “Reset Admin Account” button on the admin login screen recreates the default admin without deleting employees
 
 ## Data & Storage
 
