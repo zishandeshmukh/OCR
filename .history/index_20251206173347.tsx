@@ -1908,7 +1908,9 @@ Instructions:
 1. Extract header fields: Constituency details, Part number, Polling station name & address
 2. Extract Page_Number from footer (convert Devanagari digits: ०→0, १→1, २→2, ३→3, ४→4, ५→5, ६→6, ७→7, ८→8, ९→9)
 3. DO NOT extract voter table data - only metadata
-4. Output strictly as JSON matching the schema`;
+4. Output strictly as JSON matching the schema
+
+;
      
      let headerData: any = {};
      try {

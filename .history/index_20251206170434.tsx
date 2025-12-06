@@ -25,35 +25,35 @@ const DESKTOP_CONFIG = {
   // ============ SPEED PROFILES FOR 20 DEVICES ============
   // Choose based on how many computers are actively processing at once
   SPEED_PROFILES: {
-    // TURBO MODE: Primary usage - 2-3 devices (FASTEST, DEFAULT)
-    turbo: {
-      CONCURRENCY: 50,        // PAID: 2000 RPM allows aggressive concurrency for 2-3 PCs
-      RENDER_CONCURRENCY: 12,
-      BATCH_SIZE: 8,
-      description: "Maximum speed for 2-3 devices (PRIMARY USE)"
-    },
-    // BALANCED MODE: Secondary usage - ~10 devices actively processing
-    balanced: {
-      CONCURRENCY: 24,        // PAID: Conservative for 10 active users (~240 RPM total)
-      RENDER_CONCURRENCY: 8,
-      BATCH_SIZE: 5,
-      description: "Balanced for ~10 active devices"
-    },
-    // SAFE MODE: Rare usage - 20 devices simultaneously
+    // SAFE MODE: When all 20 computers may be processing simultaneously
     safe: {
-      CONCURRENCY: 12,        // PAID: 2000 RPM / 20 PCs = 100 RPM each (safe buffer)
-      RENDER_CONCURRENCY: 6,
+      CONCURRENCY: 10,        // 2000 RPM / 20 PCs = 100 RPM each
+      RENDER_CONCURRENCY: 4,
       BATCH_SIZE: 4,
-      description: "Safe for 20 simultaneous devices"
+      description: "Safe for 20 simultaneous users"
+    },
+    // BALANCED MODE: When ~10 computers are actively processing
+    balanced: {
+      CONCURRENCY: 18,        // Good balance of speed and safety
+      RENDER_CONCURRENCY: 6,
+      BATCH_SIZE: 5,
+      description: "Balanced speed for ~10 active users"
+    },
+    // TURBO MODE: When only 1-3 computers are processing (FASTEST)
+    turbo: {
+      CONCURRENCY: 35,        // Maximum speed for few users
+      RENDER_CONCURRENCY: 10,
+      BATCH_SIZE: 6,
+      description: "Maximum speed for 1-3 active users"
     }
   },
   
-  // Default profile: turbo (primary usage: 2-3 devices)
-  DEFAULT_PROFILE: 'turbo' as 'safe' | 'balanced' | 'turbo',
+  // Default profile (change this or let users toggle)
+  DEFAULT_PROFILE: 'balanced' as 'safe' | 'balanced' | 'turbo',
   
   // Image processing settings for MAXIMUM ACCURACY
   IMAGE_SCALE: 2.5,      // INCREASED for better accuracy
-  JPEG_QUALITY: 0.85,    // 85% quality for optimal OCR (matches Python reference)
+  JPEG_QUALITY: 0.90,    // INCREASED for sharper text
   
   // AI Model settings
   USE_FLASH_MODEL: true, // gemini-2.5-flash (fastest)
@@ -1879,11 +1879,9 @@ CLASSIFICATION:`;
     }
   };
 
-  // --- OPTIMIZED 2-CALL EXTRACTION (Required for Different Headers Per Page) ---
-  // Call 1: Extract header/metadata (different per page) - 500 tokens
-  // Call 2: Extract all voter records - 8000 tokens
-  // Uses gemini-1.5-flash-002 (stable) with JSON schema for 99%+ accuracy
-  // Works on: Electron Desktop + Vercel Web
+  // --- STRUCTURED JSON EXTRACTION (2-Call Approach: Header + Voters) ---
+  // Call 1: Extract header/metadata, Call 2: Extract all voter records
+  // Uses Google GenAI's JSON schema for 99%+ accuracy (Python reference implementation)
   const callGeminiWithImage = async (base64Data: string, extractedTextHint?: string, pageNum?: number, sourceFile?: string): Promise<Voter[]> => {
      if (!apiKey) throw new Error("API Key missing");
      const ai = new GoogleGenAI({ apiKey: apiKey });
@@ -1908,18 +1906,19 @@ Instructions:
 1. Extract header fields: Constituency details, Part number, Polling station name & address
 2. Extract Page_Number from footer (convert Devanagari digits: ०→0, १→1, २→2, ३→3, ४→4, ५→5, ६→6, ७→7, ८→8, ९→9)
 3. DO NOT extract voter table data - only metadata
-4. Output strictly as JSON matching the schema`;
+4. Output strictly as JSON matching the schema
+
+;
      
      let headerData: any = {};
      try {
        const headerResponse = await ai.models.generateContent({
-         model: 'gemini-1.5-flash-002',
+         model: 'gemini-2.0-flash-exp',
          contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data }}, { text: headerPrompt }] },
          config: {
            temperature: 0.05,
            maxOutputTokens: 500,
-           topP: 0.9,
-           topK: 40,
+           topP: 0.8,
            responseMimeType: "application/json",
            responseSchema: headerSchema
          }
@@ -1973,90 +1972,148 @@ Instructions:
 6. Sex: M (पुरुष/Male) or F (महिला/Female)
 7. For missing fields, use empty string "", but NEVER skip the voter entry
 8. Output as JSON array of voter objects
-${extractedTextHint ? `\n\nText hint: ${extractedTextHint.slice(0, 200)}` : ''}`;
+${extractedTextHint ? `\n\nText hint: ${extractedTextHint.slice(0, 200)}` : ''}
+
+      const parts: any[] = [
+        { inlineData: { mimeType: 'image/jpeg', data: base64Data }},
+        { text: prompt }
+      ];
 
       try {
-        const voterResponse = await ai.models.generateContent({
-          model: 'gemini-1.5-flash-002',
-          contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data }}, { text: voterPrompt }] },
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: { parts },
           config: {
             temperature: 0.05,
-            maxOutputTokens: 8000,
-            topP: 0.9,
-            topK: 40,
-            responseMimeType: "application/json",
-            responseSchema: voterArraySchema
+            maxOutputTokens: 12000,
+            topP: 0.8,
+            topK: 20,
           }
         });
 
-        const voterRecords: any[] = JSON.parse(voterResponse.text || '[]');
+        const text = response.text || "";
+        const lines = text.split('\n').filter(l => l.trim().length > 5);
         
-        // Map JSON response to Voter objects
-        const voters: Voter[] = voterRecords.map((record: any) => {
-          const serialNo = convertDevanagariDigits(record.SrNo || '').replace(/[^\d]/g, '');
-          const id = (record.EPIC || '').replace(/\s/g, '').toUpperCase();
-          const age = parseInt(convertDevanagariDigits(record.Age || '').replace(/[^\d]/g, '')) || 0;
-          const gender: 'M' | 'F' = record.Sex === 'F' || record.Sex === 'महिला' ? 'F' : 'M';
-          const status = record.VoterStatus === 'DELETED' ? 'DELETED' : 'ALIVE';
+        // NEVER skip pages - always try to extract voter data
+        // The AI should extract data, not classify pages
+        
+        // Parse header data
+        let headerData = {
+          GAT_and_Gan_Details: '',
+          PartNo: '',
+          BootName: '',
+          BoothaAddress: '',
+          Page_Number: pageNum?.toString() || '',
+          ACNo: '',
+          PartNo_Segment: ''
+        };
+        
+        // Find header line
+        for (const line of lines) {
+          if (line.toUpperCase().startsWith('HEADER|') || line.startsWith('HEADER|')) {
+            const cols = line.split('|').map(c => c.trim());
+            headerData.GAT_and_Gan_Details = cols[1] || '';
+            headerData.PartNo = cols[2] || '';
+            headerData.BootName = cols[3] || '';
+            headerData.BoothaAddress = cols[4] || '';
+            headerData.Page_Number = convertDevanagariDigits(cols[5] || '') || pageNum?.toString() || '';
+            headerData.ACNo = convertDevanagariDigits(cols[6] || '');
+            headerData.PartNo_Segment = cols[2]?.match(/\d+/)?.[0] || '';
+            break;
+          }
+        }
+        
+        const voters: Voter[] = [];
+        
+        // Parse voter lines (handles 1 or more voters)
+        for (const line of lines) {
+          if (!line.toUpperCase().startsWith('VOTER|') && !line.startsWith('VOTER|')) continue;
           
-          // Validation & confidence scoring
+          const cols = line.split('|').map(c => c.trim().replace(/^\*+|\*+$/g, ''));
+          if (cols.length < 6) continue; // Minimum: VOTER|SrNo|EPIC|Name|...|Age
+          
+          // Parse voter fields (flexible - handles missing fields)
+          const serialNo = convertDevanagariDigits(cols[1] || '').replace(/[^\d]/g, '');
+          const rawId = cols[2] || '';
+          const id = rawId.replace(/\s/g, '').replace(/[oO]/g, '0').toUpperCase();
+          const name = cols[3]?.trim() || '';
+          const nameEn = cols[4]?.trim() || '';
+          const relationType = cols[5]?.trim() || 'Father';
+          const relativeName = cols[6]?.trim() || '';
+          const relativeNameEn = cols[7]?.trim() || '';
+          const houseNo = cols[8]?.trim() || '';
+          const age = parseInt(convertDevanagariDigits(cols[9] || '').replace(/[^\d]/g, '')) || 0;
+          const genderRaw = (cols[10] || '').toUpperCase();
+          const statusRaw = (cols[11] || '').toUpperCase();
+          const serialNoInPart = convertDevanagariDigits(cols[12] || '').replace(/[^\d]/g, '') || serialNo;
+          
+          // Validation flags - IMPROVED EPIC pattern (2-3 letters + 7-10 digits)
           const isValidId = /^[A-Z]{2,3}\d{7,10}$/.test(id);
           const isValidAge = age > 17 && age < 120;
-          let confidence = 75;
-          if (isValidId) confidence += 15;
-          if (isValidAge) confidence += 5;
-          if ((record.FullName_M || '').length > 3) confidence += 5;
+          let gender: 'M' | 'F' = 'M';
           
-          return {
-            // Header fields from Call 1
-            GAT_and_Gan_Details: headerData.GAT_and_Gan_Details || '',
-            PartNo: headerData.PartNo || '',
-            BootName: headerData.BootName || '',
-            BoothaAddress: headerData.BoothaAddress || '',
-            Page_Number: headerData.Page_Number || pageNum?.toString() || '',
-            ACNo: headerData.ACNo || '',
-            PartNo_Segment: (headerData.PartNo || '').match(/\d+/)?.[0] || '',
-            SerialNoInPart: convertDevanagariDigits(record.SerialNoInPart || record.SrNo || '').replace(/[^\d]/g, ''),
-            
-            // Voter fields from Call 2
-            serialNo,
-            id,
-            name: record.FullName_M || '',
-            nameEn: record.FullName_E || '',
-            relationType: record.RelationType || 'Father',
-            relativeName: record.RelationName_M || '',
-            relativeNameEn: record.RelationName_E || '',
-            houseNo: record.HouseNo || '',
-            age: isValidAge ? age : 0,
-            gender,
-            status,
-            confidenceScore: Math.min(100, confidence),
-            sourceImageFile: sourceFile || `Page_${pageNum || 'Unknown'}`
-          };
-        }).filter(v => v.name.length > 2 || v.id.length > 5); // Filter out invalid entries
+          if (genderRaw === 'F' || genderRaw.includes('महिला') || genderRaw.includes('FEMALE') || genderRaw === 'स्त्री') {
+            gender = 'F';
+          }
+          
+          // Status mapping
+          let status = 'ALIVE';
+          if (statusRaw.includes('DELETE') || statusRaw === 'D' || statusRaw.includes('DEAD')) {
+            status = 'DELETED';
+          }
+          
+          // Confidence calculation
+          let confidence = 70;
+          if (isValidId) confidence += 15;
+          if (isValidAge) confidence += 10;
+          if (name.length > 3) confidence += 5;
+          if (nameEn.length > 2) confidence += 5;
+          
+          if (name.length > 2 || isValidId) {
+            voters.push({
+              // Header fields (same for all voters on this page)
+              GAT_and_Gan_Details: headerData.GAT_and_Gan_Details,
+              PartNo: headerData.PartNo,
+              BootName: headerData.BootName,
+              BoothaAddress: headerData.BoothaAddress,
+              Page_Number: headerData.Page_Number,
+              ACNo: headerData.ACNo,
+              PartNo_Segment: headerData.PartNo_Segment,
+              SerialNoInPart: serialNoInPart,
+              
+              // Voter fields
+              serialNo,
+              id,
+              name,
+              nameEn,
+              relationType,
+              relativeName,
+              relativeNameEn,
+              houseNo,
+              age: isValidAge ? age : 0,
+              gender,
+              status,
+              confidenceScore: Math.min(100, confidence),
+              sourceImageFile: sourceFile || `Page_${pageNum || 'Unknown'}`
+            });
+          }
+        }
         
-        if (voters.length === 0) {
-          console.warn(`⚠️ Page ${pageNum}: No voters extracted from structured JSON response`);
+        // Log warning if no voters found on a page (potential issue)
+        if (voters.length === 0 && lines.length > 3) {
+          console.warn(`⚠️ Page ${pageNum}: 0 voters extracted but ${lines.length} response lines. Possible missed data!`);
+          console.log('Response sample:', lines.slice(0, 5).join('\n'));
         }
         
         return voters;
 
       } catch (e: any) {
-        console.error(`Gemini Error (Page ${pageNum}):`, e.status || e.message);
+        console.error(`Gemini Error:`, e.status || e.message);
         
-        // Retry logic with exponential backoff (matching Python implementation)
         if (e.status === 429) {
-          console.warn(`⚠️ Rate limit (429) - retrying in 2 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 1500));
           return callGeminiWithImage(base64Data, extractedTextHint, pageNum, sourceFile);
         }
-        
-        if (e.status === 503 || e.status === 500) {
-          console.warn(`⚠️ Server error (${e.status}) - retrying in 3 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          return callGeminiWithImage(base64Data, extractedTextHint, pageNum, sourceFile);
-        }
-        
         return [];
       }
   };
@@ -2226,7 +2283,7 @@ OUTPUT:` });
         const speedProfile = getSpeedProfile();
         const CONCURRENCY = speedProfile.CONCURRENCY;          // Dynamic based on profile
         const IMAGE_SCALE = DESKTOP_CONFIG.IMAGE_SCALE;        // 2.5 for high accuracy
-        const JPEG_QUALITY = DESKTOP_CONFIG.JPEG_QUALITY;      // 0.85 for optimal OCR
+        const JPEG_QUALITY = DESKTOP_CONFIG.JPEG_QUALITY;      // 0.90 for clarity
         const RENDER_CONCURRENCY = speedProfile.RENDER_CONCURRENCY; // Dynamic parallel renders
         const BATCH_SIZE = speedProfile.BATCH_SIZE;            // Dynamic batch size
         const USE_BATCH_MODE = BATCH_SIZE > 1 && numPages >= 8; // Enable batch if enough pages

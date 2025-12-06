@@ -25,35 +25,35 @@ const DESKTOP_CONFIG = {
   // ============ SPEED PROFILES FOR 20 DEVICES ============
   // Choose based on how many computers are actively processing at once
   SPEED_PROFILES: {
-    // TURBO MODE: Primary usage - 2-3 devices (FASTEST, DEFAULT)
-    turbo: {
-      CONCURRENCY: 50,        // PAID: 2000 RPM allows aggressive concurrency for 2-3 PCs
-      RENDER_CONCURRENCY: 12,
-      BATCH_SIZE: 8,
-      description: "Maximum speed for 2-3 devices (PRIMARY USE)"
-    },
-    // BALANCED MODE: Secondary usage - ~10 devices actively processing
-    balanced: {
-      CONCURRENCY: 24,        // PAID: Conservative for 10 active users (~240 RPM total)
-      RENDER_CONCURRENCY: 8,
-      BATCH_SIZE: 5,
-      description: "Balanced for ~10 active devices"
-    },
-    // SAFE MODE: Rare usage - 20 devices simultaneously
+    // SAFE MODE: When all 20 computers may be processing simultaneously
     safe: {
-      CONCURRENCY: 12,        // PAID: 2000 RPM / 20 PCs = 100 RPM each (safe buffer)
-      RENDER_CONCURRENCY: 6,
+      CONCURRENCY: 10,        // 2000 RPM / 20 PCs = 100 RPM each
+      RENDER_CONCURRENCY: 4,
       BATCH_SIZE: 4,
-      description: "Safe for 20 simultaneous devices"
+      description: "Safe for 20 simultaneous users"
+    },
+    // BALANCED MODE: When ~10 computers are actively processing
+    balanced: {
+      CONCURRENCY: 18,        // Good balance of speed and safety
+      RENDER_CONCURRENCY: 6,
+      BATCH_SIZE: 5,
+      description: "Balanced speed for ~10 active users"
+    },
+    // TURBO MODE: When only 1-3 computers are processing (FASTEST)
+    turbo: {
+      CONCURRENCY: 35,        // Maximum speed for few users
+      RENDER_CONCURRENCY: 10,
+      BATCH_SIZE: 6,
+      description: "Maximum speed for 1-3 active users"
     }
   },
   
-  // Default profile: turbo (primary usage: 2-3 devices)
-  DEFAULT_PROFILE: 'turbo' as 'safe' | 'balanced' | 'turbo',
+  // Default profile (change this or let users toggle)
+  DEFAULT_PROFILE: 'balanced' as 'safe' | 'balanced' | 'turbo',
   
   // Image processing settings for MAXIMUM ACCURACY
   IMAGE_SCALE: 2.5,      // INCREASED for better accuracy
-  JPEG_QUALITY: 0.85,    // 85% quality for optimal OCR (matches Python reference)
+  JPEG_QUALITY: 0.90,    // INCREASED for sharper text
   
   // AI Model settings
   USE_FLASH_MODEL: true, // gemini-2.5-flash (fastest)
@@ -1879,11 +1879,9 @@ CLASSIFICATION:`;
     }
   };
 
-  // --- OPTIMIZED 2-CALL EXTRACTION (Required for Different Headers Per Page) ---
-  // Call 1: Extract header/metadata (different per page) - 500 tokens
-  // Call 2: Extract all voter records - 8000 tokens
-  // Uses gemini-1.5-flash-002 (stable) with JSON schema for 99%+ accuracy
-  // Works on: Electron Desktop + Vercel Web
+  // --- STRUCTURED JSON EXTRACTION (2-Call Approach: Header + Voters) ---
+  // Call 1: Extract header/metadata, Call 2: Extract all voter records
+  // Uses Google GenAI's JSON schema for 99%+ accuracy (Python reference implementation)
   const callGeminiWithImage = async (base64Data: string, extractedTextHint?: string, pageNum?: number, sourceFile?: string): Promise<Voter[]> => {
      if (!apiKey) throw new Error("API Key missing");
      const ai = new GoogleGenAI({ apiKey: apiKey });
@@ -1908,18 +1906,19 @@ Instructions:
 1. Extract header fields: Constituency details, Part number, Polling station name & address
 2. Extract Page_Number from footer (convert Devanagari digits: ०→0, १→1, २→2, ३→3, ४→4, ५→5, ६→6, ७→7, ८→8, ९→9)
 3. DO NOT extract voter table data - only metadata
-4. Output strictly as JSON matching the schema`;
+4. Output strictly as JSON matching the schema
+
+;
      
      let headerData: any = {};
      try {
        const headerResponse = await ai.models.generateContent({
-         model: 'gemini-1.5-flash-002',
+         model: 'gemini-2.0-flash-exp',
          contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data }}, { text: headerPrompt }] },
          config: {
            temperature: 0.05,
            maxOutputTokens: 500,
-           topP: 0.9,
-           topK: 40,
+           topP: 0.8,
            responseMimeType: "application/json",
            responseSchema: headerSchema
          }
@@ -1977,14 +1976,14 @@ ${extractedTextHint ? `\n\nText hint: ${extractedTextHint.slice(0, 200)}` : ''}`
 
       try {
         const voterResponse = await ai.models.generateContent({
-          model: 'gemini-1.5-flash-002',
+          model: 'gemini-2.0-flash-exp',
           contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data }}, { text: voterPrompt }] },
           config: {
             temperature: 0.05,
             maxOutputTokens: 8000,
-            topP: 0.9,
-            topK: 40,
-            responseMimeType: "application/json",
+            topP: 0.8,
+            topK: 20,
+            responseMimeType: \"application/json\",
             responseSchema: voterArraySchema
           }
         });
@@ -2042,21 +2041,12 @@ ${extractedTextHint ? `\n\nText hint: ${extractedTextHint.slice(0, 200)}` : ''}`
         return voters;
 
       } catch (e: any) {
-        console.error(`Gemini Error (Page ${pageNum}):`, e.status || e.message);
+        console.error(`Gemini Error:`, e.status || e.message);
         
-        // Retry logic with exponential backoff (matching Python implementation)
         if (e.status === 429) {
-          console.warn(`⚠️ Rate limit (429) - retrying in 2 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          await new Promise(resolve => setTimeout(resolve, 1500));
           return callGeminiWithImage(base64Data, extractedTextHint, pageNum, sourceFile);
         }
-        
-        if (e.status === 503 || e.status === 500) {
-          console.warn(`⚠️ Server error (${e.status}) - retrying in 3 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          return callGeminiWithImage(base64Data, extractedTextHint, pageNum, sourceFile);
-        }
-        
         return [];
       }
   };
@@ -2226,7 +2216,7 @@ OUTPUT:` });
         const speedProfile = getSpeedProfile();
         const CONCURRENCY = speedProfile.CONCURRENCY;          // Dynamic based on profile
         const IMAGE_SCALE = DESKTOP_CONFIG.IMAGE_SCALE;        // 2.5 for high accuracy
-        const JPEG_QUALITY = DESKTOP_CONFIG.JPEG_QUALITY;      // 0.85 for optimal OCR
+        const JPEG_QUALITY = DESKTOP_CONFIG.JPEG_QUALITY;      // 0.90 for clarity
         const RENDER_CONCURRENCY = speedProfile.RENDER_CONCURRENCY; // Dynamic parallel renders
         const BATCH_SIZE = speedProfile.BATCH_SIZE;            // Dynamic batch size
         const USE_BATCH_MODE = BATCH_SIZE > 1 && numPages >= 8; // Enable batch if enough pages
