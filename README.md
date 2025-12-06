@@ -56,7 +56,25 @@ Distribute `VoterAlign-Pro-Full.zip` (fully offline — CSS bundled, no CDN).
 - `npm run electron:start` — run Electron with local files
 - `npm run electron:build:win` — build Windows installer/portable
 
+## Deploy to Vercel
+
+1. Push your code to GitHub
+2. Go to [vercel.com](https://vercel.com) and sign in with GitHub
+3. Click **"Add New Project"** → Select your repo
+4. Configure:
+   - **Framework Preset:** Vite
+   - **Build Command:** `npm run build`
+   - **Output Directory:** `dist`
+   - **Install Command:** `npm install`
+5. Add environment variable (if using Gemini API):
+   - Key: `GEMINI_API_KEY`
+   - Value: `your-api-key-here`
+6. Click **"Deploy"**
+
+**Note:** Web deployment works but has limitations vs desktop (no Electron APIs, localStorage per-browser). For production with 10 employees, use the desktop ZIP distribution.
+
 ## Notes
 
 - All styles are bundled (Tailwind v3) — works offline.
 - Keep `.env.local` out of git (already in `.gitignore`).
+- **Admin sessions persist** (auto-login after closing app). To test fresh login in `npm run dev`, run `localStorage.clear()` in browser console or use the logout button.

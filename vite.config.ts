@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
     return {
-      base: './', // Important for Electron - use relative paths
+      base: '/', // Use root path for web deployment (Vercel), './' for Electron
       server: {
         port: 3000,
         host: '0.0.0.0',
