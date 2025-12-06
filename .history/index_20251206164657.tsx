@@ -2309,37 +2309,13 @@ OUTPUT:` });
                 canvas.height = 0;
                 
                 return { pageNum, base64, textHint: pageText };
-            } catch (renderErr: any) {
-                console.error(`❌ RENDER ERROR (Page ${pageNum}):`, renderErr.message);
-                return { pageNum, base64: '', textHint: '' };
             }
+            return { pageNum, base64: '', textHint: '' };
         };
 
-        // STEP 4: Render all pages with high concurrency
-        let renderedPages: any[] = [];
-        try {
-            console.log(`⏳ Rendering ${numPages} pages with ${RENDER_CONCURRENCY} concurrency...`);
-            const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
-            renderedPages = await pMap(pageNumbers, preRenderPage, { concurrency: RENDER_CONCURRENCY });
-            
-            const successfulRenders = renderedPages.filter(p => p.base64).length;
-            const failedRenders = renderedPages.length - successfulRenders;
-            console.log(`✅ Rendering complete: ${successfulRenders}/${numPages} pages successfully rendered`);
-            
-            if (failedRenders > 0) {
-                console.warn(`⚠️ ${failedRenders} pages failed to render`);
-                addToast(`⚠️ Warning: ${failedRenders} pages failed to render. Results may be incomplete.`, 'warning');
-            }
-            
-            if (successfulRenders === 0) {
-                throw new Error('All pages failed to render');
-            }
-        } catch (renderBatchErr: any) {
-            console.error('❌ RENDERING BATCH ERROR:', renderBatchErr.message);
-            addToast('❌ Failed to render PDF pages: ' + renderBatchErr.message, 'error');
-            setIsProcessing(false);
-            return;
-        }
+        // Render all pages with high concurrency
+        const pageNumbers = Array.from({ length: numPages }, (_, i) => i + 1);
+        const renderedPages = await pMap(pageNumbers, preRenderPage, { concurrency: RENDER_CONCURRENCY });
         
         setProcessProgress(15);
         setProcessDetail(`✅ All ${numPages} pages rendered. Starting AI extraction...`);
@@ -2352,43 +2328,25 @@ OUTPUT:` });
         const sourceFileName = file.name;
         
         const processWithGemini = async (pageData: { pageNum: number, base64: string, textHint: string }) => {
-            if (!pageData.base64) {
-                console.warn(`⚠️ Page ${pageData.pageNum}: No image data available (render failed)`);
-                completedCount++;
-                skippedPages++;
-                return [];
-            }
+            if (!pageData.base64) return [];
             
             try {
                 // HYBRID OCR: Quick Tesseract scan for text hints (improves accuracy)
                 let enhancedHint = pageData.textHint;
                 if (DESKTOP_CONFIG.ENABLE_HYBRID_OCR) {
-                  try {
-                    const ocrHint = await quickOCR(pageData.base64);
-                    if (ocrHint.length > 50) {
-                      enhancedHint = ocrHint;
-                    }
-                  } catch (ocrErr: any) {
-                    console.warn(`⚠️ OCR hint failed for page ${pageData.pageNum}:`, ocrErr.message);
-                    // Continue with text hint fallback
+                  const ocrHint = await quickOCR(pageData.base64);
+                  if (ocrHint.length > 50) {
+                    enhancedHint = ocrHint;
                   }
                 }
                 
                 // Pass pageNum and sourceFile for header extraction
-                let voters: Voter[] = [];
-                try {
-                    voters = await callGeminiWithImage(
-                      pageData.base64, 
-                      enhancedHint, 
-                      pageData.pageNum,
-                      `${sourceFileName}_Page${pageData.pageNum}`
-                    );
-                } catch (geminiErr: any) {
-                    console.error(`❌ Gemini API error for page ${pageData.pageNum}:`, geminiErr.message);
-                    addToast(`❌ API error on page ${pageData.pageNum}. Check API key or rate limit.`, 'error');
-                    completedCount++;
-                    return [];
-                }
+                const voters = await callGeminiWithImage(
+                  pageData.base64, 
+                  enhancedHint, 
+                  pageData.pageNum,
+                  `${sourceFileName}_Page${pageData.pageNum}`
+                );
                 
                 completedCount++;
                 
@@ -2417,8 +2375,8 @@ OUTPUT:` });
                 setProcessDetail(`Page ${completedCount}/${numPages} • ${totalVotersExtracted} records${failInfo}`);
                 
                 return voters;
-            } catch (e: any) {
-                console.error(`❌ UNEXPECTED ERROR on Page ${pageData.pageNum}:`, e?.message || e);
+            } catch (e) {
+                console.error(`Page ${pageData.pageNum} failed:`, e);
                 completedCount++;
                 return [];
             }
@@ -2485,23 +2443,9 @@ OUTPUT:` });
    ⚙️ Settings: Concurrency=${CONCURRENCY}, Scale=${IMAGE_SCALE}x
         `);
 
-    } catch (err: any) {
-        console.error("❌ PDF PROCESSING ERROR:", err?.message || err);
-        console.error("Full error details:", err);
-        
-        // Provide specific error guidance
-        if (err?.message?.includes('0 pages')) {
-            addToast("❌ PDF appears to be invalid or corrupted. Please check the file.", 'error');
-        } else if (err?.message?.includes('worker')) {
-            addToast("❌ PDF rendering failed (worker issue). Try reloading the page.", 'error');
-        } else if (err?.message?.includes('CORS') || err?.message?.includes('401') || err?.message?.includes('403')) {
-            addToast("❌ CDN access issue. Check your internet connection or try again.", 'error');
-        } else if (err?.message?.includes('API') || err?.message?.includes('key')) {
-            addToast("❌ API configuration error. Check your Gemini API key.", 'error');
-        } else {
-            addToast("❌ PDF processing failed: " + (err?.message || 'Unknown error'), 'error');
-        }
-        
+    } catch (err) {
+        console.error("PDF Processing Error:", err);
+        addToast("Failed to process PDF. Check Internet/API Key.", 'error');
         setIsProcessing(false);
     }
   };

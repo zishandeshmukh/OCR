@@ -2485,23 +2485,9 @@ OUTPUT:` });
    ⚙️ Settings: Concurrency=${CONCURRENCY}, Scale=${IMAGE_SCALE}x
         `);
 
-    } catch (err: any) {
-        console.error("❌ PDF PROCESSING ERROR:", err?.message || err);
-        console.error("Full error details:", err);
-        
-        // Provide specific error guidance
-        if (err?.message?.includes('0 pages')) {
-            addToast("❌ PDF appears to be invalid or corrupted. Please check the file.", 'error');
-        } else if (err?.message?.includes('worker')) {
-            addToast("❌ PDF rendering failed (worker issue). Try reloading the page.", 'error');
-        } else if (err?.message?.includes('CORS') || err?.message?.includes('401') || err?.message?.includes('403')) {
-            addToast("❌ CDN access issue. Check your internet connection or try again.", 'error');
-        } else if (err?.message?.includes('API') || err?.message?.includes('key')) {
-            addToast("❌ API configuration error. Check your Gemini API key.", 'error');
-        } else {
-            addToast("❌ PDF processing failed: " + (err?.message || 'Unknown error'), 'error');
-        }
-        
+    } catch (err) {
+        console.error("PDF Processing Error:", err);
+        addToast("Failed to process PDF. Check Internet/API Key.", 'error');
         setIsProcessing(false);
     }
   };

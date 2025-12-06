@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Loading VoterAlign Pro</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: transparent;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    
+    .splash-container {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 20px;
+      padding: 40px 50px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      animation: fadeIn 0.5s ease-out;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.9); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    
+    .logo {
+      width: 80px;
+      height: 80px;
+      background: white;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    }
+    
+    .logo svg {
+      width: 45px;
+      height: 45px;
+      color: #667eea;
+    }
+    
+    h1 {
+      color: white;
+      font-size: 24px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    
+    .tagline {
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 12px;
+      margin-bottom: 25px;
+    }
+    
+    .loader {
+      width: 150px;
+      height: 4px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+    
+    .loader-bar {
+      width: 30%;
+      height: 100%;
+      background: white;
+      border-radius: 4px;
+      animation: loading 1.2s ease-in-out infinite;
+    }
+    
+    @keyframes loading {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(400%); }
+    }
+    
+    .version {
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 10px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="splash-container">
+    <div class="logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+        <polyline points="14 2 14 8 20 8"></polyline>
+        <line x1="16" y1="13" x2="8" y2="13"></line>
+        <line x1="16" y1="17" x2="8" y2="17"></line>
+        <polyline points="10 9 9 9 8 9"></polyline>
+      </svg>
+    </div>
+    <h1>VoterAlign Pro</h1>
+    <p class="tagline">Election Data Management System</p>
+    <div class="loader">
+      <div class="loader-bar"></div>
+    </div>
+    <p class="version">v1.0.0</p>
+  </div>
+</body>
+</html>
