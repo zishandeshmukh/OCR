@@ -176,8 +176,17 @@ const getPermissions = (role: 'admin' | 'employee') => {
 
 // 2. PDF Worker Configuration
 const pdfjs: any = (pdfjsLib as any).default || pdfjsLib;
+const isElectronEnv = typeof window !== 'undefined' && (window as any).electronAPI !== undefined;
 const isLocal = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.protocol === 'file:');
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+
+// Set worker source based on environment
+if (isElectronEnv) {
+    // Desktop: use CDN (has network)
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+} else {
+    // Web: use cdn.jsdelivr.net (more reliable on Vercel)
+    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js`;
+}
 
 // --- DATA SIMULATION ---
 const CSV_DATA = `Serial No,ID,Name,Relative's Name,House No,Age,Gender,Status
@@ -2160,12 +2169,20 @@ OUTPUT:` });
     
     try {
         const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjs.getDocument({ 
+        const getDocOptions: any = { 
           data: arrayBuffer,
-          useWorkerFetch: true,
           isEvalSupported: true,
           useSystemFonts: true
-        }).promise;
+        };
+        
+        // Only use worker fetch on Electron; web has CORS/worker issues
+        if (isElectronEnv) {
+            getDocOptions.useWorkerFetch = true;
+        } else {
+            getDocOptions.useWorkerFetch = false;
+        }
+        
+        const pdf = await pdfjs.getDocument(getDocOptions).promise;
         const numPages = pdf.numPages;
         
         let currentSessionVoters: Voter[] = [];
