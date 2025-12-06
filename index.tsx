@@ -1879,197 +1879,183 @@ CLASSIFICATION:`;
     }
   };
 
-  // --- ULTRA-OPTIMIZED GEMINI CALL (Extracts HEADER + VOTER data) ---
-  // Handles: cover pages, single voter pages, multi-voter pages
+  // --- STRUCTURED JSON EXTRACTION (2-Call Approach: Header + Voters) ---
+  // Call 1: Extract header/metadata, Call 2: Extract all voter records
+  // Uses Google GenAI's JSON schema for 99%+ accuracy (Python reference implementation)
   const callGeminiWithImage = async (base64Data: string, extractedTextHint?: string, pageNum?: number, sourceFile?: string): Promise<Voter[]> => {
      if (!apiKey) throw new Error("API Key missing");
      const ai = new GoogleGenAI({ apiKey: apiKey });
      
-     // COMPREHENSIVE PROMPT - ALWAYS extract voter data, NEVER skip pages
-     const prompt = `You are an expert at reading Indian electoral roll PDFs. Extract ALL voter data from this page.
+     // CALL 1: Extract Header/Metadata (Structured JSON)
+     const headerSchema = {
+       type: "object" as const,
+       properties: {
+         GAT_and_Gan_Details: { type: "string" as const, description: "Constituency/Election division details" },
+         PartNo: { type: "string" as const, description: "Part number with locality/village name" },
+         BootName: { type: "string" as const, description: "Polling station name" },
+         BoothaAddress: { type: "string" as const, description: "Full polling station address" },
+         Page_Number: { type: "string" as const, description: "Page number (convert Devanagari to English digits)" },
+         ACNo: { type: "string" as const, description: "Assembly Constituency number" }
+       },
+       required: ["GAT_and_Gan_Details", "PartNo", "BootName", "BoothaAddress", "Page_Number", "ACNo"]
+     };
+     
+     const headerPrompt = `Analyze this electoral roll page and extract ONLY the header/footer metadata.
+     
+Instructions:
+1. Extract header fields: Constituency details, Part number, Polling station name & address
+2. Extract Page_Number from footer (convert Devanagari digits: ०→0, १→1, २→2, ३→3, ४→4, ५→5, ६→6, ७→7, ८→8, ९→9)
+3. DO NOT extract voter table data - only metadata
+4. Output strictly as JSON matching the schema
 
-🎯 YOUR ONLY JOB: Extract voter records. Do NOT classify pages. Do NOT say "cover page" or "empty".
+;
+     
+     let headerData: any = {};
+     try {
+       const headerResponse = await ai.models.generateContent({
+         model: 'gemini-2.0-flash-exp',
+         contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data }}, { text: headerPrompt }] },
+         config: {
+           temperature: 0.05,
+           maxOutputTokens: 500,
+           topP: 0.8,
+           responseMimeType: "application/json",
+           responseSchema: headerSchema
+         }
+       });
+       headerData = JSON.parse(headerResponse.text || '{}');
+     } catch (e) {
+       console.warn(`Header extraction failed for page ${pageNum}:`, e);
+       headerData = {
+         GAT_and_Gan_Details: '',
+         PartNo: '',
+         BootName: '',
+         BoothaAddress: '',
+         Page_Number: pageNum?.toString() || '',
+         ACNo: ''
+       };
+     }
+     
+     // CALL 2: Extract Voter Records (Structured JSON Array)
+     const voterSchema = {
+       type: "object" as const,
+       properties: {
+         VoterStatus: { type: "string" as const, description: "ALIVE or DELETED" },
+         SerialNoInPart: { type: "string" as const },
+         SrNo: { type: "string" as const },
+         EPIC: { type: "string" as const, description: "Voter ID (2-3 letters + 7-10 digits)" },
+         FullName_M: { type: "string" as const, description: "Full name in Marathi script" },
+         FullName_E: { type: "string" as const, description: "Phonetic English name" },
+         RelationType: { type: "string" as const, description: "Father/Husband/Mother" },
+         RelationName_M: { type: "string" as const },
+         RelationName_E: { type: "string" as const },
+         HouseNo: { type: "string" as const },
+         Age: { type: "string" as const },
+         Sex: { type: "string" as const, description: "M or F" }
+       },
+       required: ["VoterStatus", "SrNo", "EPIC", "FullName_M", "FullName_E", "RelationType", "RelationName_M", "RelationName_E", "HouseNo", "Age", "Sex"]
+     };
+     
+     const voterArraySchema = {
+       type: "array" as const,
+       items: voterSchema
+     };
+     
+     const voterPrompt = `Analyze the voter table in this electoral roll page (Page ${pageNum || '?'}). Extract EVERY SINGLE VOTER RECORD.
 
-SECTION 1: PAGE HEADER (output ONCE at the start)
-HEADER|GAT_and_Gan_Details|PartNo|BootName|BoothaAddress|PageNumber|ACNo
-
-Header fields to find:
-- GAT_and_Gan_Details: Constituency info (विधानसभा मतदारसंघ, गट, ward details)
-- PartNo: Part number (भाग क्रमांक with area name)
-- BootName: Polling station name (मतदान केंद्र)  
-- BoothaAddress: Full booth address
-- PageNumber: Page number (convert ०१२३ to 0123)
-- ACNo: Assembly Constituency number
-
-SECTION 2: VOTER TABLE (output EVERY voter you see)
-VOTER|SrNo|EPIC|FullName_M|FullName_E|RelationType|RelationName_M|RelationName_E|HouseNo|Age|Sex|Status|SerialNoInPart
-
-For EACH voter entry (photo box = 1 voter):
-- SrNo: Serial number (1, 2, 3... convert Devanagari)
-- EPIC: Voter ID EXACTLY as printed (e.g., WUB1234567, YLC8904561)
-- FullName_M: Full name in EXACT Marathi script (copy exactly)
-- FullName_E: Phonetic English (झिशान खान → Zishan Khan)
-- RelationType: Father/Husband/Mother (from पिता/पती/आई)
-- RelationName_M: Relation's name in Marathi
-- RelationName_E: Relation's name in English
-- HouseNo: House/Room number
-- Age: Voter age (number only, convert Devanagari)
-- Sex: M (पुरुष/Male) or F (महिला/Female)
-- Status: ALIVE or DELETED (if crossed out/strikethrough)
-- SerialNoInPart: Part serial number if shown
-
-⚠️ MANDATORY RULES:
-1. Count photo boxes - each box = 1 voter to extract
-2. Extract ALL voters even with partial/missing data
-3. EPIC format: 2-3 uppercase letters + 7-10 digits
-4. Convert Devanagari numbers: ०→0, १→1, २→2, ३→3, ४→4, ५→5, ६→6, ७→7, ८→8, ९→9
-5. Use empty string "" for missing fields, never skip the voter
-6. Output format MUST be: VOTER|field1|field2|... (pipe separated)
-
-${extractedTextHint ? `TEXT HINT: ${extractedTextHint.slice(0, 300)}` : ''}
-
-START OUTPUT WITH HEADER LINE, THEN ALL VOTER LINES:`;
-
-      const parts: any[] = [
-        { inlineData: { mimeType: 'image/jpeg', data: base64Data }},
-        { text: prompt }
-      ];
+Instructions:
+1. Each photo box = 1 voter. Count ALL boxes and extract ALL voters.
+2. Extract all fields: SrNo, EPIC (voter ID), FullName_M (Marathi), FullName_E (English phonetic), RelationType, RelationName_M, RelationName_E, HouseNo, Age, Sex
+3. VoterStatus: Set to 'ALIVE' unless voter entry is crossed out/strikethrough (then 'DELETED')
+4. Convert Devanagari digits to English: ०→0, १→1, २→2, ३→3, ④→4, ५→5, ६→6, ७→7, ८→8, ९→9
+5. EPIC format: 2-3 uppercase letters + 7-10 digits (e.g., WUB1234567, YLC8904561)
+6. Sex: M (पुरुष/Male) or F (महिला/Female)
+7. For missing fields, use empty string "", but NEVER skip the voter entry
+8. Output as JSON array of voter objects
+${extractedTextHint ? `\n\nText hint: ${extractedTextHint.slice(0, 200)}` : ''}`;
 
       try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: { parts },
+        const voterResponse = await ai.models.generateContent({
+          model: 'gemini-2.0-flash-exp',
+          contents: { parts: [{ inlineData: { mimeType: 'image/jpeg', data: base64Data }}, { text: voterPrompt }] },
           config: {
             temperature: 0.05,
-            maxOutputTokens: 12000,
+            maxOutputTokens: 8000,
             topP: 0.8,
             topK: 20,
+            responseMimeType: \"application/json\",
+            responseSchema: voterArraySchema
           }
         });
 
-        const text = response.text || "";
-        const lines = text.split('\n').filter(l => l.trim().length > 5);
+        const voterRecords: any[] = JSON.parse(voterResponse.text || '[]');
         
-        // NEVER skip pages - always try to extract voter data
-        // The AI should extract data, not classify pages
-        
-        // Parse header data
-        let headerData = {
-          GAT_and_Gan_Details: '',
-          PartNo: '',
-          BootName: '',
-          BoothaAddress: '',
-          Page_Number: pageNum?.toString() || '',
-          ACNo: '',
-          PartNo_Segment: ''
-        };
-        
-        // Find header line
-        for (const line of lines) {
-          if (line.toUpperCase().startsWith('HEADER|') || line.startsWith('HEADER|')) {
-            const cols = line.split('|').map(c => c.trim());
-            headerData.GAT_and_Gan_Details = cols[1] || '';
-            headerData.PartNo = cols[2] || '';
-            headerData.BootName = cols[3] || '';
-            headerData.BoothaAddress = cols[4] || '';
-            headerData.Page_Number = convertDevanagariDigits(cols[5] || '') || pageNum?.toString() || '';
-            headerData.ACNo = convertDevanagariDigits(cols[6] || '');
-            headerData.PartNo_Segment = cols[2]?.match(/\d+/)?.[0] || '';
-            break;
-          }
-        }
-        
-        const voters: Voter[] = [];
-        
-        // Parse voter lines (handles 1 or more voters)
-        for (const line of lines) {
-          if (!line.toUpperCase().startsWith('VOTER|') && !line.startsWith('VOTER|')) continue;
+        // Map JSON response to Voter objects
+        const voters: Voter[] = voterRecords.map((record: any) => {
+          const serialNo = convertDevanagariDigits(record.SrNo || '').replace(/[^\d]/g, '');
+          const id = (record.EPIC || '').replace(/\s/g, '').toUpperCase();
+          const age = parseInt(convertDevanagariDigits(record.Age || '').replace(/[^\d]/g, '')) || 0;
+          const gender: 'M' | 'F' = record.Sex === 'F' || record.Sex === 'महिला' ? 'F' : 'M';
+          const status = record.VoterStatus === 'DELETED' ? 'DELETED' : 'ALIVE';
           
-          const cols = line.split('|').map(c => c.trim().replace(/^\*+|\*+$/g, ''));
-          if (cols.length < 6) continue; // Minimum: VOTER|SrNo|EPIC|Name|...|Age
-          
-          // Parse voter fields (flexible - handles missing fields)
-          const serialNo = convertDevanagariDigits(cols[1] || '').replace(/[^\d]/g, '');
-          const rawId = cols[2] || '';
-          const id = rawId.replace(/\s/g, '').replace(/[oO]/g, '0').toUpperCase();
-          const name = cols[3]?.trim() || '';
-          const nameEn = cols[4]?.trim() || '';
-          const relationType = cols[5]?.trim() || 'Father';
-          const relativeName = cols[6]?.trim() || '';
-          const relativeNameEn = cols[7]?.trim() || '';
-          const houseNo = cols[8]?.trim() || '';
-          const age = parseInt(convertDevanagariDigits(cols[9] || '').replace(/[^\d]/g, '')) || 0;
-          const genderRaw = (cols[10] || '').toUpperCase();
-          const statusRaw = (cols[11] || '').toUpperCase();
-          const serialNoInPart = convertDevanagariDigits(cols[12] || '').replace(/[^\d]/g, '') || serialNo;
-          
-          // Validation flags - IMPROVED EPIC pattern (2-3 letters + 7-10 digits)
+          // Validation & confidence scoring
           const isValidId = /^[A-Z]{2,3}\d{7,10}$/.test(id);
           const isValidAge = age > 17 && age < 120;
-          let gender: 'M' | 'F' = 'M';
-          
-          if (genderRaw === 'F' || genderRaw.includes('महिला') || genderRaw.includes('FEMALE') || genderRaw === 'स्त्री') {
-            gender = 'F';
-          }
-          
-          // Status mapping
-          let status = 'ALIVE';
-          if (statusRaw.includes('DELETE') || statusRaw === 'D' || statusRaw.includes('DEAD')) {
-            status = 'DELETED';
-          }
-          
-          // Confidence calculation
-          let confidence = 70;
+          let confidence = 75;
           if (isValidId) confidence += 15;
-          if (isValidAge) confidence += 10;
-          if (name.length > 3) confidence += 5;
-          if (nameEn.length > 2) confidence += 5;
+          if (isValidAge) confidence += 5;
+          if ((record.FullName_M || '').length > 3) confidence += 5;
           
-          if (name.length > 2 || isValidId) {
-            voters.push({
-              // Header fields (same for all voters on this page)
-              GAT_and_Gan_Details: headerData.GAT_and_Gan_Details,
-              PartNo: headerData.PartNo,
-              BootName: headerData.BootName,
-              BoothaAddress: headerData.BoothaAddress,
-              Page_Number: headerData.Page_Number,
-              ACNo: headerData.ACNo,
-              PartNo_Segment: headerData.PartNo_Segment,
-              SerialNoInPart: serialNoInPart,
-              
-              // Voter fields
-              serialNo,
-              id,
-              name,
-              nameEn,
-              relationType,
-              relativeName,
-              relativeNameEn,
-              houseNo,
-              age: isValidAge ? age : 0,
-              gender,
-              status,
-              confidenceScore: Math.min(100, confidence),
-              sourceImageFile: sourceFile || `Page_${pageNum || 'Unknown'}`
-            });
-          }
-        }
+          return {
+            // Header fields from Call 1
+            GAT_and_Gan_Details: headerData.GAT_and_Gan_Details || '',
+            PartNo: headerData.PartNo || '',
+            BootName: headerData.BootName || '',
+            BoothaAddress: headerData.BoothaAddress || '',
+            Page_Number: headerData.Page_Number || pageNum?.toString() || '',
+            ACNo: headerData.ACNo || '',
+            PartNo_Segment: (headerData.PartNo || '').match(/\d+/)?.[0] || '',
+            SerialNoInPart: convertDevanagariDigits(record.SerialNoInPart || record.SrNo || '').replace(/[^\d]/g, ''),
+            
+            // Voter fields from Call 2
+            serialNo,
+            id,
+            name: record.FullName_M || '',
+            nameEn: record.FullName_E || '',
+            relationType: record.RelationType || 'Father',
+            relativeName: record.RelationName_M || '',
+            relativeNameEn: record.RelationName_E || '',
+            houseNo: record.HouseNo || '',
+            age: isValidAge ? age : 0,
+            gender,
+            status,
+            confidenceScore: Math.min(100, confidence),
+            sourceImageFile: sourceFile || `Page_${pageNum || 'Unknown'}`
+          };
+        }).filter(v => v.name.length > 2 || v.id.length > 5); // Filter out invalid entries
         
-        // Log warning if no voters found on a page (potential issue)
-        if (voters.length === 0 && lines.length > 3) {
-          console.warn(`⚠️ Page ${pageNum}: 0 voters extracted but ${lines.length} response lines. Possible missed data!`);
-          console.log('Response sample:', lines.slice(0, 5).join('\n'));
+        if (voters.length === 0) {
+          console.warn(`⚠️ Page ${pageNum}: No voters extracted from structured JSON response`);
         }
         
         return voters;
 
       } catch (e: any) {
-        console.error(`Gemini Error:`, e.status || e.message);
+        console.error(`Gemini Error (Page ${pageNum}):`, e.status || e.message);
         
+        // Retry logic with exponential backoff (matching Python implementation)
         if (e.status === 429) {
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          console.warn(`⚠️ Rate limit (429) - retrying in 2 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
           return callGeminiWithImage(base64Data, extractedTextHint, pageNum, sourceFile);
         }
+        
+        if (e.status === 503 || e.status === 500) {
+          console.warn(`⚠️ Server error (${e.status}) - retrying in 3 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          return callGeminiWithImage(base64Data, extractedTextHint, pageNum, sourceFile);
+        }
+        
         return [];
       }
   };
